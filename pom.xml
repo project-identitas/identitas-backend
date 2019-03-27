@@ -11,7 +11,7 @@
     <module>api</module>
   </modules>
 
-  <name>identitas</name>
+  <name>Identitas</name>
 
   <properties>
     <jersey2.version>2.19</jersey2.version>
