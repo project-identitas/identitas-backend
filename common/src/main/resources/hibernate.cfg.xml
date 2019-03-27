@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE hibernate-configuration PUBLIC "-//Hibernate/Hibernate Configuration DTD 3.0//EN"
+        "http://hibernate.sourceforge.net/hibernate-configuration-3.0.dtd">
+<hibernate-configuration>
+    <session-factory>
+        <property name="hibernate.connection.driver_class">com.mysql.jdbc.Driver</property>
+        
+        <!--<property name="hibernate.connection.url">jdbc:mysql://bqmayq5x95g1sgr9.cbetxkdyhwsb.us-east-1.rds.amazonaws.com:3306/a5x1k8x693t0vl11?serverTimezone=UTC</property>-->
+        <!--<property name="hibernate.connection.username">erx5mtv4j7zwq9ig</property>-->
+        <!--<property name="hibernate.connection.password">vdh435czrnhjlijm</property>-->
+
+        <property name="hibernate.connection.url">jdbc:mysql://localhost:3306/buzz?serverTimezone=UTC</property>
+        <property name="hibernate.connection.username">root</property>
+        <property name="hibernate.connection.password">tos</property>
+
+        <property name="hibernate.dialect">org.hibernate.dialect.MySQLDialect</property>
+        <property name="hibernate.show_sql">true</property>
+        <property name="hibernate.format_sql">true</property>
+        <!--<property name="hibernate.hbm2ddl.auto">create</property>-->
+
+        <mapping class="com.identitas.model.Authentication"/>
+        <mapping class="com.identitas.model.User"/>
+        <mapping class="com.identitas.model.UserEmail"/>
+        <mapping class="com.identitas.model.Company"/>
+        <mapping class="com.identitas.model.CompanyEmail"/>
+        <mapping class="com.identitas.model.Buzz"/>
+        <mapping class="com.identitas.model.BuzzLike"/>
+        <mapping class="com.identitas.model.BuzzFavorite"/>
+        <mapping class="com.identitas.model.Poll"/>
+        <mapping class="com.identitas.model.UserPoll"/>
+        <mapping class="com.identitas.model.Comment"/>
+        <mapping class="com.identitas.model.CommentLike"/>
+        <mapping class="com.identitas.model.ReportCategory"/>
+        <mapping class="com.identitas.model.Report"/>
+        <mapping class="com.identitas.model.Feedback"/>
+    </session-factory>
+</hibernate-configuration>

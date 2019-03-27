@@ -1,0 +1,200 @@
+package com.identitas.source.user;
+
+import com.identitas.auth.UserAuth;
+import com.identitas.dao.BuzzDao;
+import com.identitas.dao.BuzzFavoriteDao;
+import com.identitas.dao.BuzzLikeDao;
+import com.identitas.dao.CommentDao;
+import com.identitas.dao.CommentLikeDao;
+import com.identitas.dao.SessionProvider;
+import com.identitas.dao.UserDao;
+import com.identitas.dao.UserEmailDao;
+import com.identitas.dao.UserPollDao;
+import com.identitas.exception.BuzzException;
+import com.identitas.model.Buzz;
+import com.identitas.model.BuzzFavorite;
+import com.identitas.model.BuzzLike;
+import com.identitas.model.Comment;
+import com.identitas.model.CommentLike;
+import com.identitas.model.User;
+import com.identitas.model.UserEmail;
+import com.identitas.model.UserPoll;
+import com.identitas.requestBody.CommentLikeRequestBody;
+import com.identitas.requestBody.CommentRequestBody;
+import com.identitas.view.BuzzCommentListView;
+import com.identitas.view.BuzzView;
+import com.identitas.view.CommentView;
+
+import javax.ws.rs.Consumes;
+import javax.ws.rs.DefaultValue;
+import javax.ws.rs.GET;
+import javax.ws.rs.POST;
+import javax.ws.rs.Path;
+import javax.ws.rs.Produces;
+import javax.ws.rs.QueryParam;
+import javax.ws.rs.core.Context;
+import javax.ws.rs.core.MediaType;
+import javax.ws.rs.core.SecurityContext;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+import static com.identitas.exception.BadRequest.BUZZ_NOT_EXIST;
+import static com.identitas.exception.BadRequest.COMMENT_NOT_EXIST;
+import static com.identitas.exception.BadRequest.TEXT_CANNOT_BE_EMPTY;
+import static com.identitas.exception.BadRequest.USER_EMAIL_NOT_EXIST;
+import static com.identitas.exception.BadRequest.USER_EMAIL_NOT_MATCH;
+import static com.identitas.source.user.BuzzSource.validateUserWorksAtCompany;
+import static java.util.Collections.emptyList;
+import static java.util.stream.Collectors.groupingBy;
+import static java.util.stream.Collectors.toList;
+import static java.util.stream.Collectors.toSet;
+import static org.apache.commons.lang.StringUtils.isEmpty;
+
+@Path("/user")
+@UserAuth
+public class CommentSource {
+
+
+    public CommentSource() {
+    }
+
+    @GET
+    @Path("/comment")
+    @Produces(MediaType.APPLICATION_JSON)
+    public BuzzCommentListView getCommentByBuzzId(@QueryParam("buzzId") final int buzzId,
+                                                  @QueryParam("start") @DefaultValue("0") final int start,
+                                                  @QueryParam("limit") @DefaultValue("50") final int limit,
+                                                  @Context final SecurityContext securityContext) {
+        try (final SessionProvider sessionProvider = new SessionProvider()) {
+            final UserDao userDao = new UserDao(sessionProvider);
+            final BuzzDao buzzDao = new BuzzDao(sessionProvider);
+            final BuzzLikeDao buzzLikeDao = new BuzzLikeDao(sessionProvider);
+            final BuzzFavoriteDao buzzFavoriteDao = new BuzzFavoriteDao(sessionProvider);
+            final CommentDao commentDao = new CommentDao(sessionProvider);
+            final CommentLikeDao commentLikeDao = new CommentLikeDao(sessionProvider);
+            final UserPollDao userPollDao = new UserPollDao(sessionProvider);
+            final UserEmailDao userEmailDao = new UserEmailDao(sessionProvider);
+
+            final User user = userDao.getByGuid(securityContext.getUserPrincipal().getName()).get();
+            final Optional<Buzz> buzz = buzzDao.getByIdOptional(buzzId);
+            if (!buzz.isPresent()) {
+                throw new BuzzException(BUZZ_NOT_EXIST);
+            }
+            validateUserWorksAtCompany(user.getId(), buzz.get().getCompanyId(), userEmailDao);
+
+            final List<Comment> commentList = commentDao.getByBuzzId(buzz.get().getId(), start, limit);
+            final List<Integer> commentIds = commentList.stream().map(Comment::getId).collect(toList());
+            final List<CommentLike> commentLikes = commentLikeDao.getByUserIdAndCommentIds(user.getId(), commentIds);
+            final Set<Integer> commentLikeIds = commentLikes.stream().map(CommentLike::getCommentId).collect(toSet());
+
+            final List<CommentView> commentViews = commentList.stream()
+                    .map(comment -> new CommentView(comment, commentLikeIds.contains(comment.getId())))
+                    .collect(toList());
+
+            final Optional<BuzzLike> buzzLike = buzzLikeDao.getByUserIdAndBuzzId(user.getId(), buzz.get().getId());
+            final Optional<BuzzFavorite> buzzFavorite = buzzFavoriteDao.getByUserIdAndBuzzId(user.getId(), buzz.get().getId());
+            final List<UserPoll> userPolls = userPollDao.getByUserIdAndBuzzId(user.getId(), buzz.get().getId());
+            final Map<Integer, List<UserPoll>> buzzIdToUserPolls = userPolls.stream()
+                    .collect(groupingBy(UserPoll::getBuzzId));
+
+            final BuzzView buzzView = new BuzzView(
+                    buzz.get(),
+                    buzzLike.isPresent(),
+                    buzzFavorite.isPresent(),
+                    buzzIdToUserPolls.containsKey(buzz.get().getId()) ?
+                            buzzIdToUserPolls.get(buzz.get().getId()).stream().map(UserPoll::getPollId).collect(toList()) :
+                            emptyList());
+            return new BuzzCommentListView(buzzView, commentViews);
+        }
+    }
+
+    @POST
+    @Path("/comment")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public CommentView postComment(final CommentRequestBody commentRequestBody,
+                                   @Context final SecurityContext securityContext) {
+        if(isEmpty(commentRequestBody.getText())) {
+            throw new BuzzException(TEXT_CANNOT_BE_EMPTY);
+        }
+
+        try (final SessionProvider sessionProvider = new SessionProvider()) {
+            final UserDao userDao = new UserDao(sessionProvider);
+            final BuzzDao buzzDao = new BuzzDao(sessionProvider);
+            final UserEmailDao userEmailDao = new UserEmailDao(sessionProvider);
+            final CommentDao commentDao = new CommentDao(sessionProvider);
+
+            final User user = userDao.getByGuid(securityContext.getUserPrincipal().getName()).get();
+            final Optional<Buzz> buzz = buzzDao.getByIdOptional(commentRequestBody.getBuzzId());
+
+            if (!buzz.isPresent()) {
+                throw new BuzzException(BUZZ_NOT_EXIST);
+            }
+
+            final Optional<UserEmail> userEmail = userEmailDao.getByIdOptional(commentRequestBody.getUserEmailId());
+            if (!userEmail.isPresent()) {
+                throw new BuzzException(USER_EMAIL_NOT_EXIST);
+            }
+
+            if (userEmail.get().getUser().getId() != user.getId()) {
+                throw new BuzzException(USER_EMAIL_NOT_MATCH);
+            }
+
+            validateUserWorksAtCompany(user.getId(), buzz.get().getCompanyId(), userEmailDao);
+
+            sessionProvider.startTransaction();
+            final Comment comment = commentDao.postComment(commentRequestBody, userEmail.get(), buzzDao);
+            sessionProvider.commitTransaction();
+
+            return new CommentView(comment, false);
+        }
+    }
+
+    @POST
+    @Path("/comment/like")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @Produces(MediaType.APPLICATION_JSON)
+    public CommentView likeComment(final CommentLikeRequestBody commentLikeRequestBody,
+                                       @Context final SecurityContext securityContext) throws Exception {
+        try (final SessionProvider sessionProvider = new SessionProvider()) {
+            final UserDao userDao = new UserDao(sessionProvider);
+            final UserEmailDao userEmailDao = new UserEmailDao(sessionProvider);
+            final CommentDao commentDao = new CommentDao(sessionProvider);
+            final CommentLikeDao commentLikeDao = new CommentLikeDao(sessionProvider);
+
+            final User user = userDao.getByGuid(securityContext.getUserPrincipal().getName()).get();
+            final Optional<Comment> comment = commentDao.getByIdOptional(commentLikeRequestBody.getCommentId());
+            if (!comment.isPresent()) {
+                throw new BuzzException(COMMENT_NOT_EXIST);
+            }
+
+            final Optional<UserEmail> userEmail = userEmailDao.getByUserIdNotEveryone(user.getId());
+            if (!userEmail.isPresent()) {
+                throw new BuzzException(USER_EMAIL_NOT_EXIST);
+            }
+
+            // already liked/unliked
+            final Optional<CommentLike> commentLiked = commentLikeDao.getByUserIdAndCommentId(user.getId(), commentLikeRequestBody.getCommentId());
+            if (commentLikeRequestBody.isLiked() == commentLiked.isPresent()) {
+                return new CommentView(comment.get(), commentLiked.isPresent());
+            }
+
+            sessionProvider.startTransaction();
+            if (commentLikeRequestBody.isLiked()) {
+                commentLikeDao.likeComment(user.getId(), commentLikeRequestBody.getCommentId());
+                commentDao.increaseLikesCount(comment.get().getId());
+            } else {
+                commentLikeDao.dislikeComment(user.getId(), commentLikeRequestBody.getCommentId());
+                commentDao.decreaseLikesCount(comment.get().getId());
+            }
+
+            sessionProvider.commitTransaction();
+            sessionProvider.getSession().refresh(comment.get());
+
+            return new CommentView(comment.get(), commentLikeRequestBody.isLiked());
+        }
+    }
+
+}
